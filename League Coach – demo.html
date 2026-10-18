@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>League Coach – demo</title>
+<style>
+:root{box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);
+--bg:#f6f7fb;--card:#fff;--text:#14161f;--mute:#5d6377;--line:#e2e5ee;--accent:#4f46e5;--bad:#c62828;--good:#2e7d32;--code:#eef0f7}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1117;--card:#181b25;--text:#eceef5;--mute:#98a0b8;--line:#2a2f3f;--accent:#8b85ff;--bad:#ff7a7a;--good:#6fd38a;--code:#10131b}}
+:root[data-theme="dark"]{--bg:#0f1117;--card:#181b25;--text:#eceef5;--mute:#98a0b8;--line:#2a2f3f;--accent:#8b85ff;--bad:#ff7a7a;--good:#6fd38a;--code:#10131b}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:16px/1.5 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+main{max-width:820px;margin:0 auto;padding:20px 16px 40px}
+h1{margin:0 0 4px;font-size:1.6rem}h2{font-size:1.05rem;margin:0 0 8px}
+.sub{color:var(--mute);margin:0 0 18px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:14px}
+textarea{width:100%;min-height:150px;background:var(--code);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:10px;font:13px/1.4 ui-monospace,Menlo,Consolas,monospace}
+button{background:var(--accent);color:#fff;border:0;border-radius:8px;padding:9px 16px;font:inherit;cursor:pointer;margin:8px 8px 0 0}
+button.alt{background:transparent;color:var(--accent);border:1px solid var(--accent)}
+.tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:8px;margin:10px 0}
+.tile{background:var(--code);border-radius:8px;padding:8px 10px}
+.tile b{display:block;font-size:1.25rem}.tile span{font-size:.78rem;color:var(--mute)}
+.bad{color:var(--bad)}.good{color:var(--good)}
+ul{margin:6px 0 0;padding-left:20px}li{margin:4px 0}
+.tag{display:inline-block;font-size:.72rem;border:1px solid var(--line);border-radius:99px;padding:1px 8px;color:var(--mute);margin-bottom:8px}
+pre{background:var(--code);border-radius:8px;padding:10px;overflow-x:auto;font-size:12px;margin:8px 0 0}
+details summary{cursor:pointer;color:var(--accent)}
+.reply{white-space:pre-wrap}
+.err{color:var(--bad)}
+</style>
+</head>
+<body>
+<main>
+<h1>League Coach</h1>
+<p class="sub">Stats in, coaching out. This page runs the same rules engine as the CLI right in your browser. The coaching step uses a local open-weight model (Ollama) when you run the real tool.</p>
+
+<div class="card">
+<h2>1. Your match stats (editable JSON)</h2>
+<textarea id="in" spellcheck="false" aria-label="Match stats JSON"></textarea>
+<button id="go">Analyze</button><button id="reset" class="alt">Reset to sample</button>
+<div id="err" class="err"></div>
+</div>
+
+<div id="out"></div>
+
+<div class="card" id="coach">
+<h2>3. Coaching from a local LLM</h2>
+<div id="coachBody"></div>
+<details><summary>Payload sent to the local model</summary><pre id="payload"></pre></details>
+<p class="sub" style="margin:10px 0 0">Run it for real: <code>ollama pull llama3.1:8b</code> then <code>python league_coach.py --demo</code></p>
+</div>
+</main>
+<script>
+const BENCH={top:[6.5,.8,5],jungle:[5.5,1,5],mid:[7,.9,4.5],adc:[7.5,.8,4.5],support:[1.2,2,5]};
+const SAMPLE=[
+{role:"adc",champion:"Jinx",win:false,kills:4,deaths:8,assists:5,cs:150,minutes:28,vision:14},
+{role:"adc",champion:"Ashe",win:true,kills:9,deaths:3,assists:10,cs:210,minutes:31,vision:22},
+{role:"adc",champion:"Jinx",win:false,kills:3,deaths:9,assists:4,cs:140,minutes:27,vision:12},
+{role:"adc",champion:"Kai’Sa",win:true,kills:7,deaths:4,assists:8,cs:195,minutes:30,vision:20},
+{role:"adc",champion:"Jinx",win:false,kills:2,deaths:7,assists:6,cs:160,minutes:29,vision:15},
+{role:"adc",champion:"Ashe",win:false,kills:5,deaths:6,assists:7,cs:175,minutes:33,vision:18}];
+const SAMPLE_TXT=JSON.stringify(SAMPLE,null,1).replace(/\n\s+/g," ").replace(/\[ /,"[\n").replace(/ \]$/,"\n]").replace(/\}, \{/g,"},\n{");
+const REPLY=`1) Biggest problem: dying. You average 6.2 deaths a game, and in your losses it is 7.5 versus 3.5 in your wins. Your wins are not about mechanics, they are about staying alive.
+
+2) Drills for the next 5 games:
+• Set a hard cap: no more than 4 deaths. After your 3rd death, play safe and farm only.
+• Before every fight past 10 minutes, ask "where is the enemy jungler?" If you cannot answer, stay behind your tank.
+• Buy a control ward every back and place it. Your vision is 0.57 per minute against a target of about 0.8.
+
+3) What you do well: when you stay alive your KDA jumps, and your two wins were your cleanest games. Your CS (5.8 per minute against about 7.5) will rise on its own once you stop giving up lane time to respawn timers.`;
+const avg=a=>a.length?a.reduce((x,y)=>x+y,0)/a.length:0, r=(x,d=1)=>+x.toFixed(d);
+const esc=s=>String(s).replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
+function analyze(games){
+ const by={};games.forEach(g=>(by[String(g.role).toLowerCase()]??=[]).push(g));
+ const rep={};
+ for(const [role,gs] of Object.entries(by)){
+  const n=gs.length,mins=gs.reduce((a,g)=>a+g.minutes,0),W=gs.filter(g=>g.win),L=gs.filter(g=>!g.win);
+  const s={games:n,winrate_pct:Math.round(100*W.length/n),
+   cs_per_min:r(gs.reduce((a,g)=>a+g.cs,0)/mins,2),vision_per_min:r(gs.reduce((a,g)=>a+g.vision,0)/mins,2),
+   avg_deaths:r(avg(gs.map(g=>g.deaths))),deaths_in_wins:r(avg(W.map(g=>g.deaths))),deaths_in_losses:r(avg(L.map(g=>g.deaths))),
+   kda:r(gs.reduce((a,g)=>a+g.kills+g.assists,0)/Math.max(1,gs.reduce((a,g)=>a+g.deaths,0)),2)};
+  const [cs,vis,d]=BENCH[role]||BENCH.mid,f=[];
+  if(s.cs_per_min<cs*.92)f.push([(cs-s.cs_per_min)/cs,`CS/min ${s.cs_per_min} vs ~${cs} target for ${role}`]);
+  if(s.vision_per_min<vis*.85)f.push([(vis-s.vision_per_min)/vis,`Vision/min ${s.vision_per_min} vs ~${vis} target`]);
+  if(s.avg_deaths>d)f.push([(s.avg_deaths-d)/d,`Avg deaths ${s.avg_deaths} vs ≤ ${d} target`]);
+  if(L.length&&W.length&&s.deaths_in_losses-s.deaths_in_wins>=2)f.push([.5,`You die ${s.deaths_in_losses}x in losses vs ${s.deaths_in_wins}x in wins: your losses are mostly feeding games`]);
+  s.findings=f.sort((a,b)=>b[0]-a[0]).map(x=>x[1]);if(!s.findings.length)s.findings=["No major gaps vs benchmarks. Keep it up."];
+  s._t={cs,vis,d};rep[role]=s;
+ }
+ return rep;
+}
+function run(){
+ const el=document.getElementById("err"),out=document.getElementById("out");el.textContent="";
+ let games;try{games=JSON.parse(document.getElementById("in").value);if(!Array.isArray(games)||!games.length)throw 0;
+  games.forEach(g=>["role","win","kills","deaths","assists","cs","minutes","vision"].forEach(k=>{if(g[k]===undefined)throw new Error("Each game needs: "+k)}));
+ }catch(e){el.textContent=e.message&&e.message!=="0"?e.message:"Please paste a JSON list of games.";return}
+ const rep=analyze(games),isSample=document.getElementById("in").value.trim()===SAMPLE_TXT.trim();
+ out.innerHTML="";
+ for(const [role,s] of Object.entries(rep)){
+  const t=s._t,tile=(l,v,bad)=>`<div class="tile"><b class="${bad?"bad":"good"}">${v}</b><span>${l}</span></div>`;
+  out.insertAdjacentHTML("beforeend",`<div class="card"><h2>2. ${esc(role.toUpperCase())} · ${s.games} games</h2><div class="tiles">
+  ${tile("Win rate",s.winrate_pct+"%",s.winrate_pct<50)}${tile("KDA",s.kda,s.kda<2.5)}
+  ${tile("CS/min (target ~"+t.cs+")",s.cs_per_min,s.cs_per_min<t.cs*.92)}${tile("Vision/min (~"+t.vis+")",s.vision_per_min,s.vision_per_min<t.vis*.85)}
+  ${tile("Avg deaths (≤"+t.d+")",s.avg_deaths,s.avg_deaths>t.d)}</div><b>Flagged gaps, worst first</b><ul>${s.findings.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></div>`);
+ }
+ const clean=JSON.parse(JSON.stringify(rep));Object.values(clean).forEach(s=>delete s._t);
+ document.getElementById("payload").textContent=JSON.stringify(clean,null,2);
+ document.getElementById("coachBody").innerHTML=isSample
+  ?`<span class="tag">Example reply, illustrative. Written for this sample data, not live model output.</span><div class="reply">${esc(REPLY)}</div>`
+  :`<span class="tag">Custom data</span><p>The flagged gaps above are packaged into the payload below. Running the CLI with your file sends it to your local model, which writes the coaching.</p>`;
+}
+document.getElementById("go").onclick=run;
+document.getElementById("reset").onclick=()=>{document.getElementById("in").value=SAMPLE_TXT;run()};
+document.getElementById("in").value=SAMPLE_TXT;run();
+</script>
+</body>
+</html>
